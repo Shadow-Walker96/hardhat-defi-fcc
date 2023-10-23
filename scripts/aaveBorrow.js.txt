@@ -1,0 +1,846 @@
+/*
+// 19:30:51 -> WETH Wrapped ETH, forking Mainnet
+const { getWeth } = require("../scripts/getWeth")
+
+async function main() {
+    await getWeth()
+}
+
+main()
+    .then(() => process.exit(0))
+    .catch((error) => {
+        console.error(error)
+        process.exit(1)
+    })
+    // Now when we run -> yarn hardhat run scripts/aaveBorrow.js 
+    // It displays this -> Got 20000000000000000 WETH
+    // Excellent 
+*/
+
+/*
+
+// 19:45:20 -> Depositing into Aave -- i just split it -- first 
+const { getNamedAccounts, ethers } = require("hardhat")
+const { getWeth, AMOUNT } = require("../scripts/getWeth")
+
+/**
+ * @dev To deposit in aave, we would use IlendingPool.sol contract which will use 
+ * IlendingPoolAddressesProvider.sol contract address. so we can get the lendingPoolAddressesProvider 
+ * contract address in the V2 docs on aave, under deployed click on main market and copy it.
+ * 
+ * We would create a function called getLendingPool() to do so
+ * 
+ * lendingPoolAddressesProvider : 0xB53C1a33016B2DC2fF3653530bfF1848a515c8c5
+ * 
+ * LendingPool: we would get the address from lendingPoolAddressesProvider
+ */
+
+async function main() {
+    await getWeth()
+
+    const { deployer } = await getNamedAccounts()
+    const lendingPool = await getLendingPool(deployer)
+    console.log(`Lending Pool Address ${lendingPool.address}`)
+}
+
+async function getLendingPool(account) {
+    /**
+     * @dev lendingPoolAddressesProvider -> We want to access the contract
+     */
+    const lendingPoolAddressesProvider = await ethers.getContractAt(
+        "ILendingPoolAddressesProvider",
+        "0xB53C1a33016B2DC2fF3653530bfF1848a515c8c5",
+        account
+    )
+
+    /**
+     * @dev lendingPoolAddress Return the address of the lending pool address
+     * @dev lendingPool We want to access the contract
+     * @return lendingPool It returns the address of the contract
+     */
+    const lendingPoolAddress = await lendingPoolAddressesProvider.getLendingPool()
+    const lendingPool = await ethers.getContractAt("ILendingPool", lendingPoolAddress, account)
+    return lendingPool
+}
+
+main()
+    .then(() => process.exit(0))
+    .catch(error => {
+        console.error(error)
+        process.exit(1)
+    })
+
+// Now when we run -> yarn hardhat run scripts/aaveBorrow.js
+// It displays this -> Compiling 1 file with 0.6.12
+// Solidity compilation finished successfully
+// Got 20000000000000000 WETH
+// Lending Pool Address 0x7d2768dE32b0b80b7a3454c06BdAc94A69DDc7A9
+
+*/
+
+/*
+
+// 19:45:20 -> Depositing into Aave -- i just split it -- second
+const { getNamedAccounts, ethers } = require("hardhat")
+const { getWeth, AMOUNT } = require("../scripts/getWeth")
+
+/**
+ * @dev Now to Deposit
+ * To deposit, FIRST we need wethTokenAddress = "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2"
+ * 
+ * SECOND, we need to know that when we call the deposit() from aave, it will call a function
+ * i.e IERC20(asset).safeTransferFrom(msg.sender, aToken, amount);, which we fire .approve()
+ * 
+ * and '.safeTransferFrom(msg.sender, aToken, amount);' will put out the fund from our wallet
+ * so we need to call the .approve() to approve aave i.e if we dont do that the transaction will fail.
+ * 
+ * we would create a function called approveErc20() to approve aave 
+ */
+
+async function main() {
+    await getWeth()
+
+    const { deployer } = await getNamedAccounts()
+    const lendingPool = await getLendingPool(deployer)
+    console.log(`Lending Pool Address ${lendingPool.address}`)
+
+    const wethTokenAddress = "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2"
+
+    /**
+     * @param wethTokenAddress same as "asset" The address of the underlying asset to deposit
+     * @param lendingPool.address same as onBehalfOf it will pull out the fund from our wallet and keep it
+     * @param AMOUNT same as "amount" The amount to be deposited
+     * @param deployer same as msg.sender
+     */
+    await approveErc20(wethTokenAddress, lendingPool.address, AMOUNT, deployer)
+    console.log("Depositing...")
+
+    /**
+     * @param wethTokenAddress same as "asset" The address of the underlying asset to deposit
+     * @param AMOUNT same as "amount" The amount to be deposited
+     * @param deployer same as "onBehalfOf" The address that will receive the token
+     * @param referralCode --> 0 if the action is executed directly by the user, without any middle-man
+     */
+    await lendingPool.deposit(wethTokenAddress, AMOUNT, deployer, 0)
+    console.log("Deposited!")
+}
+
+async function getLendingPool(account) {
+    const lendingPoolAddressesProvider = await ethers.getContractAt(
+        "ILendingPoolAddressesProvider",
+        "0xB53C1a33016B2DC2fF3653530bfF1848a515c8c5",
+        account
+    )
+    const lendingPoolAddress = await lendingPoolAddressesProvider.getLendingPool()
+    const lendingPool = await ethers.getContractAt("ILendingPool", lendingPoolAddress, account)
+    return lendingPool
+}
+
+/**
+ * @dev We create a function approveErc20() to approve aave to pull out fund from our wallet
+ * @param erc20Address same as "asset" The address of the underlying asset to deposit
+ * @param spenderAddress -> The contract that we are going to give approval i.e allowance
+ * to spent our token
+ * @param amountToSpend same as "amount" The amount to be deposited
+ * @param account same as deployer also same as msg.sender
+ */
+async function approveErc20(erc20Address, spenderAddress, amountToSpend, account) {
+    /**
+     * @dev erc20Token same as IERC20(asset)
+     */
+    const erc20Token = await ethers.getContractAt("IERC20", erc20Address, account)
+
+    /**
+     * @dev erc20Token i.e IERC20() calls the approve function to set allowance for the address
+     * @param spenderAddress same as _spender The address authorized to spend
+     * @param amountToSpend same as _value the max amount they can spend
+     */
+    const tx = await erc20Token.approve(spenderAddress, amountToSpend)
+    await tx.wait(1)
+    console.log("Approved!")
+}
+
+main()
+    .then(() => process.exit(0))
+    .catch(error => {
+        console.error(error)
+        process.exit(1)
+    })
+
+// Now when we run -> yarn hardhat run scripts/aaveBorrow.js
+// It displays this -> Compiling 1 file with 0.6.12
+// Solidity compilation finished successfully
+// Got 20000000000000000 WETH
+// Lending Pool Address 0x7d2768dE32b0b80b7a3454c06BdAc94A69DDc7A9
+// Approved!
+// Depositing...
+// Deposited!
+// Excellent
+
+
+*/
+
+/*
+
+// 19:57:39 -> Borrowing from Aave --> part 1
+
+/**
+ * @dev Borrow Time!
+ * First
+ * We need to know how much we have borrowed
+ * We need to know how much we have in collateral
+ * We need to know how much we can borrow
+ *
+ * To achieve this we would create a function called getBorrowUserData()
+ */
+
+const { getNamedAccounts, ethers } = require("hardhat")
+const { getWeth, AMOUNT } = require("../scripts/getWeth")
+
+async function main() {
+    await getWeth()
+
+    const { deployer } = await getNamedAccounts()
+    const lendingPool = await getLendingPool(deployer)
+    console.log(`Lending Pool Address ${lendingPool.address}`)
+
+    const wethTokenAddress = "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2"
+    await approveErc20(wethTokenAddress, lendingPool.address, AMOUNT, deployer)
+    console.log("Depositing...")
+    await lendingPool.deposit(wethTokenAddress, AMOUNT, deployer, 0)
+    console.log("Deposited!")
+
+    /**
+     * @dev getBorrowUserData() --> we call the function 
+     */
+    let { availableBorrowsETH, totalDebtETH } = await getBorrowUserData(lendingPool, deployer)
+}
+
+/**
+ * @param lendingPool The lendingPool contract
+ * @param account The account we want to get the data for
+ *
+ * totalCollateralETH --> the total collateral in ETH of the user
+ * totalDebtETH --> the total debt in ETH of the user
+ * availableBorrowsETH --> the borrowing power left of the user
+ *
+ *@dev getUserAccountData(account) Returns the user account data across all the reserves
+ *@param account The address of the user
+ */
+async function getBorrowUserData(lendingPool, account) {
+    const {
+        totalCollateralETH,
+        totalDebtETH,
+        availableBorrowsETH
+    } = await lendingPool.getUserAccountData(account)
+    console.log(`You have ${totalCollateralETH} worth of ETH deposited`)
+    console.log(`You have ${totalDebtETH} worth of ETH borrowed`)
+    console.log(`You have ${availableBorrowsETH} worth of ETH borrowed`)
+    return { availableBorrowsETH, totalDebtETH }
+}
+
+async function getLendingPool(account) {
+    const lendingPoolAddressesProvider = await ethers.getContractAt(
+        "ILendingPoolAddressesProvider",
+        "0xB53C1a33016B2DC2fF3653530bfF1848a515c8c5",
+        account
+    )
+    const lendingPoolAddress = await lendingPoolAddressesProvider.getLendingPool()
+    const lendingPool = await ethers.getContractAt("ILendingPool", lendingPoolAddress, account)
+    return lendingPool
+}
+
+async function approveErc20(erc20Address, spenderAddress, amountToSpend, account) {
+    const erc20Token = await ethers.getContractAt("IERC20", erc20Address, account)
+    const tx = await erc20Token.approve(spenderAddress, amountToSpend)
+    await tx.wait(1)
+    console.log("Approved!")
+}
+
+main()
+    .then(() => process.exit(0))
+    .catch(error => {
+        console.error(error)
+        process.exit(1)
+    })
+
+// Now when we run -> yarn hardhat run scripts/aaveBorrow.js
+// It displays this -> Got 20000000000000000 WETH
+// Lending Pool Address 0x7d2768dE32b0b80b7a3454c06BdAc94A69DDc7A9
+// Approved!
+// Depositing...
+// Deposited!
+// You have 20000000000000000 worth of ETH deposited
+// You have 0 worth of ETH borrowed
+// You have 16500000000000000 worth of ETH borrowed
+
+
+*/
+
+/*
+
+// 19:57:39 -> Borrowing from Aave --> part 2
+
+/**
+ * @dev Borrow Time!
+ * First
+ * We need to know how much we have borrowed
+ * We need to know how much we have in collateral
+ * We need to know how much we can borrow
+ *
+ * To achieve this we would create a function called getBorrowUserData()
+ *
+ * Second
+ * Now to Borrow i.e availableBorrowsETH, we need to know the conversion rate of DAI is ?
+ * which means that we need to know how much DAI in terms of ETH
+ *
+ * That means we would need chainlink pricefeed
+ *
+ * So in aave docs v2, we have Price Oracle which is a contract that will give us the priceFeed
+ *
+ * To achieve thos we would need to create a function called getDaiPrice()
+ */
+
+const { getNamedAccounts, ethers } = require("hardhat")
+const { getWeth, AMOUNT } = require("../scripts/getWeth")
+
+async function main() {
+    await getWeth()
+
+    const { deployer } = await getNamedAccounts()
+    const lendingPool = await getLendingPool(deployer)
+    console.log(`Lending Pool Address ${lendingPool.address}`)
+
+    const wethTokenAddress = "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2"
+    await approveErc20(wethTokenAddress, lendingPool.address, AMOUNT, deployer)
+    console.log("Depositing...")
+    await lendingPool.deposit(wethTokenAddress, AMOUNT, deployer, 0)
+    console.log("Deposited!")
+
+    let { availableBorrowsETH, totalDebtETH } = await getBorrowUserData(lendingPool, deployer)
+
+    /**
+     * @dev we call the getDaiPrice() which will give us the price of DAI/ETH
+     */
+    const daiPrice = await getDaiPrice()
+}
+
+async function getDaiPrice() {
+    /**
+     * we got the contract address from chainlink price for Ethereum mainnet
+     * DAI/ETH = 0x773616E4d11A78F511299002da57A0a94577F1f4
+     *
+     * Also we are not connecting to the deployer bcos we are not sending transaction, also we are got reading
+     * from the contract, and reading dont need a signer
+     */
+    const daiEthPriceFeed = await ethers.getContractAt(
+        "AggregatorV3Interface",
+        "0x773616e4d11a78f511299002da57a0a94577f1f4"
+    )
+    /**
+     * @dev we did this i.e (await daiEthPriceFeed.latestRoundData())[1] bcos latestRoundData() will return
+     * (uint80 roundId, int256 answer, uint256 startedAt, uint256 updatedAt, uint80 answeredInRound)
+     * and we need just the answer
+     */
+    const price = (await daiEthPriceFeed.latestRoundData())[1]
+    console.log(`The DAI/ETH price is ${price.toString()}`)
+    return price
+}
+
+async function getBorrowUserData(lendingPool, account) {
+    const {
+        totalCollateralETH,
+        totalDebtETH,
+        availableBorrowsETH
+    } = await lendingPool.getUserAccountData(account)
+    console.log(`You have ${totalCollateralETH} worth of ETH deposited`)
+    console.log(`You have ${totalDebtETH} worth of ETH borrowed`)
+    console.log(`You have ${availableBorrowsETH} worth of ETH borrowed`)
+    return { availableBorrowsETH, totalDebtETH }
+}
+
+async function getLendingPool(account) {
+    const lendingPoolAddressesProvider = await ethers.getContractAt(
+        "ILendingPoolAddressesProvider",
+        "0xB53C1a33016B2DC2fF3653530bfF1848a515c8c5",
+        account
+    )
+    const lendingPoolAddress = await lendingPoolAddressesProvider.getLendingPool()
+    const lendingPool = await ethers.getContractAt("ILendingPool", lendingPoolAddress, account)
+    return lendingPool
+}
+
+async function approveErc20(erc20Address, spenderAddress, amountToSpend, account) {
+    const erc20Token = await ethers.getContractAt("IERC20", erc20Address, account)
+    const tx = await erc20Token.approve(spenderAddress, amountToSpend)
+    await tx.wait(1)
+    console.log("Approved!")
+}
+
+main()
+    .then(() => process.exit(0))
+    .catch(error => {
+        console.error(error)
+        process.exit(1)
+    })
+
+// Now when we run -> yarn hardhat run scripts/aaveBorrow.js
+// It displays this -> Compiling 1 file with 0.6.12
+// Solidity compilation finished successfully
+// Got 20000000000000000 WETH
+// Lending Pool Address 0x7d2768dE32b0b80b7a3454c06BdAc94A69DDc7A9
+// Approved!
+// Depositing...
+// Deposited!
+// You have 20000000000000000 worth of ETH deposited
+// You have 0 worth of ETH borrowed
+// You have 16500000000000000 worth of ETH borrowed
+// The DAI/ETH price is 617103955105258
+
+
+
+*/
+
+/*
+
+// 19:57:39 -> Borrowing from Aave --> part 3
+
+/**
+ * @dev Borrow Time!
+ * First
+ * We need to know how much we have borrowed
+ * We need to know how much we have in collateral
+ * We need to know how much we can borrow
+ *
+ * To achieve this we would create a function called getBorrowUserData()
+ *
+ * Second
+ * Now to Borrow i.e availableBorrowsETH, we need to know the conversion rate of DAI is ?
+ * which means that we need to know how much DAI in terms of ETH
+ *
+ * That means we would need chainlink pricefeed
+ *
+ * So in aave docs v2, we have Price Oracle which is a contract that will give us the priceFeed
+ *
+ * To achieve thos we would need to create a function called getDaiPrice()
+ *
+ * Third
+ * Now we want to figure how much we can borrow in DAI, since we have availableBorrowsETH
+ * we need to covert availableBorrowsETH bcos its in ETH to DAI
+ *
+ * To achieve this we need to convert availableBorrowsETH to DAI
+ * amountToDaiToBorrow() variable below will convert it
+ */
+
+const { getNamedAccounts, ethers } = require("hardhat")
+const { getWeth, AMOUNT } = require("../scripts/getWeth")
+
+async function main() {
+    await getWeth()
+
+    const { deployer } = await getNamedAccounts()
+    const lendingPool = await getLendingPool(deployer)
+    console.log(`Lending Pool Address ${lendingPool.address}`)
+
+    const wethTokenAddress = "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2"
+    await approveErc20(wethTokenAddress, lendingPool.address, AMOUNT, deployer)
+    console.log("Depositing...")
+    await lendingPool.deposit(wethTokenAddress, AMOUNT, deployer, 0)
+    console.log("Deposited!")
+
+    let { availableBorrowsETH, totalDebtETH } = await getBorrowUserData(lendingPool, deployer)
+
+    const daiPrice = await getDaiPrice()
+
+    /**
+     * @dev amountToDaiToBorrow It will give us the amount of dai we can borrow
+     */
+    const amountToDaiToBorrow = availableBorrowsETH.toString() * 0.95 * (1 / daiPrice.toNumber())
+    console.log(`You can borrow ${amountToDaiToBorrow} DAI`)
+}
+
+async function getDaiPrice() {
+    const daiEthPriceFeed = await ethers.getContractAt(
+        "AggregatorV3Interface",
+        "0x773616e4d11a78f511299002da57a0a94577f1f4"
+    )
+    const price = (await daiEthPriceFeed.latestRoundData())[1]
+    console.log(`The DAI/ETH price is ${price.toString()}`)
+    return price
+}
+
+async function getBorrowUserData(lendingPool, account) {
+    const {
+        totalCollateralETH,
+        totalDebtETH,
+        availableBorrowsETH
+    } = await lendingPool.getUserAccountData(account)
+    console.log(`You have ${totalCollateralETH} worth of ETH deposited`)
+    console.log(`You have ${totalDebtETH} worth of ETH borrowed`)
+    console.log(`You have ${availableBorrowsETH} worth of ETH borrowed`)
+    return { availableBorrowsETH, totalDebtETH }
+}
+
+async function getLendingPool(account) {
+    const lendingPoolAddressesProvider = await ethers.getContractAt(
+        "ILendingPoolAddressesProvider",
+        "0xB53C1a33016B2DC2fF3653530bfF1848a515c8c5",
+        account
+    )
+    const lendingPoolAddress = await lendingPoolAddressesProvider.getLendingPool()
+    const lendingPool = await ethers.getContractAt("ILendingPool", lendingPoolAddress, account)
+    return lendingPool
+}
+
+async function approveErc20(erc20Address, spenderAddress, amountToSpend, account) {
+    const erc20Token = await ethers.getContractAt("IERC20", erc20Address, account)
+    const tx = await erc20Token.approve(spenderAddress, amountToSpend)
+    await tx.wait(1)
+    console.log("Approved!")
+}
+
+main()
+    .then(() => process.exit(0))
+    .catch(error => {
+        console.error(error)
+        process.exit(1)
+    })
+
+// Now when we run -> yarn hardhat run scripts/aaveBorrow.js
+// It displays this -> Compiling 1 file with 0.6.12
+// Solidity compilation finished successfully
+// Got 20000000000000000 WETH
+// Lending Pool Address 0x7d2768dE32b0b80b7a3454c06BdAc94A69DDc7A9
+// Approved!
+// Depositing...
+// Deposited!
+// You have 20000000000000000 worth of ETH deposited
+// You have 0 worth of ETH borrowed
+// You have 16500000000000000 worth of ETH borrowed
+// The DAI/ETH price is 617103955105258
+// You can borrow 25.40090671972172 DAI
+
+
+*/
+
+/*
+
+// 19:57:39 -> Borrowing from Aave --> part 4
+
+/**
+ * @dev Borrow Time!
+ * First
+ * We need to know how much we have borrowed
+ * We need to know how much we have in collateral
+ * We need to know how much we can borrow
+ *
+ * To achieve this we would create a function called getBorrowUserData()
+ *
+ * Second
+ * Now to Borrow i.e availableBorrowsETH, we need to know the conversion rate of DAI is ?
+ * which means that we need to know how much DAI in terms of ETH
+ *
+ * That means we would need chainlink pricefeed
+ *
+ * So in aave docs v2, we have Price Oracle which is a contract that will give us the priceFeed
+ *
+ * To achieve thos we would need to create a function called getDaiPrice()
+ *
+ * Third
+ * Now we want to figure how much we can borrow in DAI, since we have availableBorrowsETH
+ * we need to covert availableBorrowsETH bcos its in ETH to DAI
+ *
+ * To achieve this we need to convert availableBorrowsETH to DAI
+ * amountToDaiToBorrow() variable below will convert it
+ *
+ * Forth
+ * Finally we would put the amountToDaiToBorrow in terms of WEI
+ * we would create a variable called amountToDaiToBorrowWei to do that
+ *
+ * And now we can borrow, to achieve this we would create a function to do that
+ */
+
+const { getNamedAccounts, ethers } = require("hardhat")
+const { getWeth, AMOUNT } = require("../scripts/getWeth")
+
+async function main() {
+    await getWeth()
+
+    const { deployer } = await getNamedAccounts()
+    const lendingPool = await getLendingPool(deployer)
+    console.log(`Lending Pool Address ${lendingPool.address}`)
+
+    const wethTokenAddress = "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2"
+    await approveErc20(wethTokenAddress, lendingPool.address, AMOUNT, deployer)
+    console.log("Depositing...")
+    await lendingPool.deposit(wethTokenAddress, AMOUNT, deployer, 0)
+    console.log("Deposited!")
+
+    let { availableBorrowsETH, totalDebtETH } = await getBorrowUserData(lendingPool, deployer)
+
+    const daiPrice = await getDaiPrice()
+
+    const amountToDaiToBorrow = availableBorrowsETH.toString() * 0.95 * (1 / daiPrice.toNumber())
+    console.log(`You can borrow ${amountToDaiToBorrow} DAI`)
+
+    /**
+     * @dev we put the amountToDaiToBorrow in terms of WEI i.e amountToDaiToBorrowWei
+     */
+    const amountToDaiToBorrowWei = ethers.utils.parseEther(amountToDaiToBorrow.toString())
+
+    /**
+     * @dev Now finally we can borrow, but we need the daiToken address which we would borrow from
+     * To get the daiToken address, search on google and type dai token address for mainnet
+     * copy the contract address from etherscan
+     * 
+     * daiToken Address = "0x6B175474E89094C44Da98b954EedeAC495271d0F"
+     */
+    const daiTokenAddress = "0x6B175474E89094C44Da98b954EedeAC495271d0F"
+    await borrowDai(daiTokenAddress, lendingPool, amountToDaiToBorrowWei, deployer)
+
+    /**
+     * @dev we called getBorrowUserData(lendingPool, deployer) again bcos 
+     * we want to again know the user account data across all the reserves when we borrowed 
+     */
+    await getBorrowUserData(lendingPool, deployer)
+}
+
+/**
+ * @dev borrowDai() A function that will enable user to borrow
+ */
+async function borrowDai(daiAddress, lendingPool, amountToDaiToBorrowWei, account) {
+    /**
+     * @param daiAddress same as asset The address of the underlying asset to borrow
+     * @param amountToDaiToBorrowWei same as amount The amount to be borrowed
+     * @param interestRateMode The interest rate mode at which the user wants to borrow: 1 for Stable, 2 for Variable
+     * @param referralCode Code 0 if the action is executed directly by the user, without any middle-man
+     * @param onBehalfOf Address of the user who will receive the debt. Should be the address of the borrower itself
+     **/
+    const borrowTx = await lendingPool.borrow(daiAddress, amountToDaiToBorrowWei, 1, 0, account)
+    await borrowTx.wait(1)
+    console.log("You've borrowed!")
+}
+
+async function getDaiPrice() {
+    const daiEthPriceFeed = await ethers.getContractAt(
+        "AggregatorV3Interface",
+        "0x773616e4d11a78f511299002da57a0a94577f1f4"
+    )
+    const price = (await daiEthPriceFeed.latestRoundData())[1]
+    console.log(`The DAI/ETH price is ${price.toString()}`)
+    return price
+}
+
+async function getBorrowUserData(lendingPool, account) {
+    const {
+        totalCollateralETH,
+        totalDebtETH,
+        availableBorrowsETH
+    } = await lendingPool.getUserAccountData(account)
+    console.log(`You have ${totalCollateralETH} worth of ETH deposited`)
+    console.log(`You have ${totalDebtETH} worth of ETH borrowed`)
+    console.log(`You have ${availableBorrowsETH} worth of ETH borrowed`)
+    return { availableBorrowsETH, totalDebtETH }
+}
+
+async function getLendingPool(account) {
+    const lendingPoolAddressesProvider = await ethers.getContractAt(
+        "ILendingPoolAddressesProvider",
+        "0xB53C1a33016B2DC2fF3653530bfF1848a515c8c5",
+        account
+    )
+    const lendingPoolAddress = await lendingPoolAddressesProvider.getLendingPool()
+    const lendingPool = await ethers.getContractAt("ILendingPool", lendingPoolAddress, account)
+    return lendingPool
+}
+
+async function approveErc20(erc20Address, spenderAddress, amountToSpend, account) {
+    const erc20Token = await ethers.getContractAt("IERC20", erc20Address, account)
+    const tx = await erc20Token.approve(spenderAddress, amountToSpend)
+    await tx.wait(1)
+    console.log("Approved!")
+}
+
+main()
+    .then(() => process.exit(0))
+    .catch(error => {
+        console.error(error)
+        process.exit(1)
+    })
+
+// Now when we run -> yarn hardhat run scripts/aaveBorrow.js
+// It displays this -> Got 20000000000000000 WETH
+// Lending Pool Address 0x7d2768dE32b0b80b7a3454c06BdAc94A69DDc7A9
+// Approved!
+// Depositing...
+// Deposited!
+// You have 20000000000000000 worth of ETH deposited
+// You have 0 worth of ETH borrowed
+// You have 16500000000000000 worth of ETH borrowed
+// The DAI/ETH price is 617103955105258
+// You can borrow 25.40090671972172 DAI
+// Error: VM Exception while processing transaction: reverted with reason string '12'
+//     at <UnrecognizedContract>.<unknown> (0x7d2768de32b0b80b7a3454c06bdac94a69ddc7a9)
+//     at <UnrecognizedContract>.<unknown> (0x7d2768de32b0b80b7a3454c06bdac94a69ddc7a9)
+//     at <UnrecognizedContract>.<unknown> (0x7d2768de32b0b80b7a3454c06bdac94a69ddc7a9)
+//     at processTicksAndRejections (node:internal/process/task_queues:96:5)
+//     at HardhatNode._mineBlockWithPendingTxs (/home/shadow-walker/hardhat-defi-fcc/node_modules/hardhat/src/internal/hardhat-network/provider/node.ts:1650:23)
+
+// I ignored the error bcos it wasent resolved in the repo
+
+// another note again is that during patrick explanation in the video, he said you would notice that
+// the ETH deposited is higher than what we deposited, and the reason why is bcos we gained an interest
+// which increased what we deposited 
+
+*/
+
+/*
+
+// 20:12:02 -> Repaying with Aave
+
+/**
+ * @dev we would create a function called repay()
+ */
+
+const { getNamedAccounts, ethers } = require("hardhat")
+const { getWeth, AMOUNT } = require("../scripts/getWeth")
+
+async function main() {
+    await getWeth()
+
+    const { deployer } = await getNamedAccounts()
+    const lendingPool = await getLendingPool(deployer)
+    console.log(`Lending Pool Address ${lendingPool.address}`)
+
+    const wethTokenAddress = "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2"
+    await approveErc20(wethTokenAddress, lendingPool.address, AMOUNT, deployer)
+    console.log("Depositing...")
+    await lendingPool.deposit(wethTokenAddress, AMOUNT, deployer, 0)
+    console.log("Deposited!")
+
+    let { availableBorrowsETH, totalDebtETH } = await getBorrowUserData(lendingPool, deployer)
+
+    const daiPrice = await getDaiPrice()
+
+    const amountToDaiToBorrow = availableBorrowsETH.toString() * 0.95 * (1 / daiPrice.toNumber())
+    console.log(`You can borrow ${amountToDaiToBorrow} DAI`)
+
+    const amountToDaiToBorrowWei = ethers.utils.parseEther(amountToDaiToBorrow.toString())
+
+    const daiTokenAddress = "0x6B175474E89094C44Da98b954EedeAC495271d0F"
+    await borrowDai(daiTokenAddress, lendingPool, amountToDaiToBorrowWei, deployer)
+
+    await getBorrowUserData(lendingPool, deployer)
+
+    /**
+     * @dev we want to repay what we borrowed
+     **/
+    await repay(amountToDaiToBorrowWei, daiTokenAddress, lendingPool, deployer)
+
+    /**
+     * @dev we called getBorrowUserData(lendingPool, deployer) again bcos
+     * we want to again know the user account data across all the reserves when we repay 
+     */
+    await getBorrowUserData(lendingPool, deployer)
+}
+
+/**
+ * @notice Repays a borrowed `amount` on a specific reserve
+ **/
+async function repay(amount, daiAddress, lendingPool, account) {
+    /**
+     * @dev when we want to repay, we need to approve aave to do so
+     */
+    await approveErc20(daiAddress, lendingPool.address, amount, account)
+
+    /**
+     * @param daiAddress same as asset The address of the borrowed underlying asset previously borrowed
+     * @param amount The amount to repay
+     * @param rateMode The interest rate mode at of the debt the user wants to repay: 1 for Stable, 2 for Variable
+     * @param onBehalfOf Address of the user who will get his debt reduced/removed.
+     **/
+    const repayTx = await lendingPool.repay(daiAddress, amount, 1, account)
+    await repayTx.wait(1)
+    console.log("Repaid")
+}
+
+async function borrowDai(daiAddress, lendingPool, amountToDaiToBorrowWei, account) {
+    const borrowTx = await lendingPool.borrow(daiAddress, amountToDaiToBorrowWei, 1, 0, account)
+    await borrowTx.wait(1)
+    console.log("You've borrowed!")
+}
+
+async function getDaiPrice() {
+    const daiEthPriceFeed = await ethers.getContractAt(
+        "AggregatorV3Interface",
+        "0x773616e4d11a78f511299002da57a0a94577f1f4"
+    )
+    const price = (await daiEthPriceFeed.latestRoundData())[1]
+    console.log(`The DAI/ETH price is ${price.toString()}`)
+    return price
+}
+
+async function getBorrowUserData(lendingPool, account) {
+    const {
+        totalCollateralETH,
+        totalDebtETH,
+        availableBorrowsETH
+    } = await lendingPool.getUserAccountData(account)
+    console.log(`You have ${totalCollateralETH} worth of ETH deposited`)
+    console.log(`You have ${totalDebtETH} worth of ETH borrowed`)
+    console.log(`You have ${availableBorrowsETH} worth of ETH borrowed`)
+    return { availableBorrowsETH, totalDebtETH }
+}
+
+async function getLendingPool(account) {
+    const lendingPoolAddressesProvider = await ethers.getContractAt(
+        "ILendingPoolAddressesProvider",
+        "0xB53C1a33016B2DC2fF3653530bfF1848a515c8c5",
+        account
+    )
+    const lendingPoolAddress = await lendingPoolAddressesProvider.getLendingPool()
+    const lendingPool = await ethers.getContractAt("ILendingPool", lendingPoolAddress, account)
+    return lendingPool
+}
+
+async function approveErc20(erc20Address, spenderAddress, amountToSpend, account) {
+    const erc20Token = await ethers.getContractAt("IERC20", erc20Address, account)
+    const tx = await erc20Token.approve(spenderAddress, amountToSpend)
+    await tx.wait(1)
+    console.log("Approved!")
+}
+
+main()
+    .then(() => process.exit(0))
+    .catch(error => {
+        console.error(error)
+        process.exit(1)
+    })
+
+// Now when we run -> yarn hardhat run scripts/aaveBorrow.js
+// It displays this -> Got 20000000000000000 WETH
+// Lending Pool Address 0x7d2768dE32b0b80b7a3454c06BdAc94A69DDc7A9
+// Approved!
+// Depositing...
+// Deposited!
+// You have 20000000000000000 worth of ETH deposited
+// You have 0 worth of ETH borrowed
+// You have 16500000000000000 worth of ETH borrowed
+// The DAI/ETH price is 617103955105258
+// You can borrow 25.40090671972172 DAI
+// Error: VM Exception while processing transaction: reverted with reason string '12'
+//     at <UnrecognizedContract>.<unknown> (0x7d2768de32b0b80b7a3454c06bdac94a69ddc7a9)
+//     at <UnrecognizedContract>.<unknown> (0x7d2768de32b0b80b7a3454c06bdac94a69ddc7a9)
+//     at <UnrecognizedContract>.<unknown> (0x7d2768de32b0b80b7a3454c06bdac94a69ddc7a9)
+//     at processTicksAndRejections (node:internal/process/task_queues:96:5)
+//     at HardhatNode._mineBlockWithPendingTxs (/home/shadow-walker/hardhat-defi-fcc/node_modules/hardhat/src/internal/hardhat-network/provider/node.ts:1650:23)
+
+// again I ignored this same error bcos it wasent resolved in the repo
+
+// Also note that patrick said the reason why we still have some borrowed left is bcos
+// when we borrow DAI it added interest. so if we want to pay the remaining debt
+// we can swap our ETH for DAI in Uniswap and programmatically get the Uniswap contract that we do that
+// in our code and pay the dept fully 
+
+
+*/
